@@ -58,7 +58,7 @@ header.top{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;justify-
 .tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 11px;font-size:13px}
 .chip input{width:74px;border:0;background:transparent;padding:0;font-weight:600;text-align:right}
-.seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;background:var(--surface);padding:2px}
+.seg{display:inline-flex;flex-wrap:wrap;border:1px solid var(--line);border-radius:999px;background:var(--surface);padding:2px}
 .seg button{border:0;background:transparent;border-radius:999px;padding:5px 12px;font-size:13px;color:var(--ink2)}
 .seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg);font-weight:600}
 .status{font-size:12px;color:var(--ink2)}
@@ -125,8 +125,16 @@ nav.tabs a[aria-current="page"]{background:var(--ink);color:var(--bg)}
 .meter i.ok{background:var(--good)}.meter i.care{background:var(--warn)}.meter i.risk{background:var(--risk)}.meter i.crit{background:var(--crit)}
 .ticks{display:grid;grid-template-columns:30fr 30fr 20fr 20fr;font-size:11px;color:var(--ink2);margin-top:3px}
 .ticks span{text-align:right;padding-right:2px}
-.inputs{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}
-.inputs label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--ink2);font-weight:600}
+.inputs{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;align-items:end}
+.field{max-width:100%}
+input[type=date].field,input[type=month].field{-webkit-appearance:none;appearance:none;display:block;width:100%;min-height:38px;text-align:left}
+input::-webkit-date-and-time-value{text-align:left}
+.f-save{background:var(--s1)}
+.prog{position:relative;height:16px;background:var(--sunk);border-radius:6px;margin:14px 0 6px}
+.prog i{position:absolute;left:0;top:0;bottom:0;border-radius:6px;background:var(--s1)}
+.prog b{position:absolute;top:-5px;bottom:-5px;width:2px;background:var(--ink);border-radius:1px}
+.fx{display:flex;flex-direction:column;gap:10px}
+.inputs label{min-width:0;display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--ink2);font-weight:600}
 .bars{display:flex;flex-direction:column;gap:8px}
 .bar{display:grid;grid-template-columns:minmax(90px,150px) 1fr auto;gap:10px;align-items:center;font-size:14px}
 .bar .track{height:12px;background:var(--sunk);border-radius:4px;overflow:hidden}
@@ -218,7 +226,7 @@ const L=(()=>{
   function netOf(movs,a,b){
     let n=0;for(const m of movs){
       if(m.type==='ingreso'){if(m.sueldo?m.payKey===a:(m.date>=a&&m.date<=b))n+=m.cop}
-      else if(m.date>=a&&m.date<=b&&(m.type==='pago'||(m.type==='gasto'&&m.method==='cuenta')))n-=m.cop}
+      else if(m.date>=a&&m.date<=b){if(m.type==='pago'||m.type==='ahorro'||(m.type==='gasto'&&m.method==='cuenta'))n-=m.cop;else if(m.type==='retiro')n+=m.cop}}
     return n;
   }
   /* sobrante acumulado de las quincenas anteriores; nunca arrastra un faltante */
@@ -243,9 +251,10 @@ const L=(()=>{
     const pend=com.filter(c=>!c.paid&&c.cash).reduce((s,c)=>s+c.amt,0);
     const income=pay+extra;
     const carry=carryInto(S,movs,per.start);
-    const libre=carry+income-pagos-gastosCash-pend;
+    const ahorro=sum(m=>m.type==='ahorro')-sum(m=>m.type==='retiro');
+    const libre=carry+income-pagos-gastosCash-ahorro-pend;
     const daysLeft=Math.round((per.end-parse(iso(today)))/864e5)+1;
-    return{per,income,carry,pay,received,extra,pagos,gastosCash,gastosCard,pend,libre,daysLeft,com};
+    return{per,income,carry,ahorro,pay,received,extra,pagos,gastosCash,gastosCard,pend,libre,daysLeft,com};
   }
   function monthSummary(S,movs,ym){
     const[y,m]=ym.split('-').map(Number);
@@ -257,11 +266,11 @@ const L=(()=>{
     const pagos=sum(x=>x.type==='pago');
     const byCat={};
     inM.filter(x=>x.type==='gasto').forEach(x=>{byCat[x.cat||'otros']=(byCat[x.cat||'otros']||0)+x.cop});
-    return{income,gastosCash,gastosCard,pagos,balance:income-gastosCash-pagos,deudaDelta:gastosCard-pagos,byCat,items:inM};
+    return{income,gastosCash,gastosCard,pagos,ahorro:sum(x=>x.type==='ahorro')-sum(x=>x.type==='retiro'),balance:income-gastosCash-pagos,deudaDelta:gastosCard-pagos,byCat,items:inM};
   }
   function project(p){
     const bals=p.debts.map(d=>({bal:d.bal,mr:Math.pow(1+(d.rate||0)/100,1/12)-1}));
-    const rows=[];let saved=0,debtFree=null,fundAt=null;const max=p.max||96;
+    const rows=[];let saved=p.saved0||0,debtFree=null,fundAt=null;const max=p.max||96;
     for(let i=0;i<=max;i++){
       const total=bals.reduce((s,b)=>s+b.bal,0);
       rows.push({i,debt:total,saved});
@@ -316,7 +325,7 @@ const usd=v=>'US$ '+v.toLocaleString('es-CO',{maximumFractionDigits:2});
 const mi=v=>v?Math.round(v).toLocaleString('es-CO'):'';
 const pct=u=>Math.round(u*100)+'%';
 const ZN={ok:'Saludable',care:'Cuidado, no gastes más',risk:'Riesgo',crit:'La estoy embarrando',none:'Falta el cupo'};
-const ZI={ok:'●',care:'▲',risk:'◆',crit:'■',none:'○'};
+const ZI={ok:'●',care:'●',risk:'●',crit:'●',none:'○'};
 const zpill=z=>`<span class="pill ${z}">${ZI[z]} ${ZN[z]}</span>`;
 const util=d=>d.cupo>0?L.debtCop(d,S.trm)/d.cupo:null;
 const payCop=()=>S.income.cur==='COP'?S.income.perPay:S.income.perPay*S.trm;
@@ -325,6 +334,10 @@ const incomeMonth=()=>payCop()*S.income.days.length;
 const catName=id=>{const c=S.cats.find(c=>c.id===id);return c?c.name:'Otros'};
 const methodName=id=>{if(id==='cuenta')return'Cuenta / efectivo';const d=S.debts.find(d=>d.id===id);return d?d.name:'Tarjeta'};
 const isLong=d=>d.longTerm==null?!!d.shared:!!d.longTerm;
+const goalKind=()=>S.goal.kind||'simple';
+const goalName=()=>goalKind()==='indep'?'vivir por tu cuenta':(S.goal.name||'tu meta');
+const savedTotal=()=>M.reduce((s,m)=>s+(m.type==='ahorro'?m.cop:m.type==='retiro'?-m.cop:0),0);
+let FX={};
 const chargeable=()=>S.debts.filter(d=>d.kind==='tarjeta'||d.charge);
 
 /* ---------- guardar ---------- */
@@ -384,7 +397,7 @@ function renderTools(){
     </div>`;
   setStatus();
 }
-const TABS=[['resumen','Hoy'],['deudas','Deudas'],['mes','Mes'],['meta','Mi meta'],['familia','Familia'],['ajustes','Ajustes']];
+const TABS=[['resumen','Hoy'],['deudas','Deudas'],['mes','Mes'],['fijos','Gastos fijos'],['meta','Mi meta'],['familia','Familia'],['ajustes','Ajustes']];
 const curTab=()=>{const h=location.hash.slice(1);return TABS.some(t=>t[0]===h)?h:'resumen'};
 function renderTabs(){const c=curTab();$('#tabs').innerHTML=TABS.map(t=>`<a href="#${t[0]}" ${t[0]===c?'aria-current="page"':''}>${t[1]}</a>`).join('')}
 
@@ -393,7 +406,7 @@ function renderQuick(){
   const keep={amt:$('#q-amt')?$('#q-amt').value:'',note:$('#q-note')?$('#q-note').value:'',date:$('#q-date')?$('#q-date').value:L.iso(new Date())};
   if(!Q.cat||!S.cats.some(c=>c.id===Q.cat))Q.cat=S.cats[0]?S.cats[0].id:null;
   if(Q.method!=='cuenta'&&!S.debts.some(d=>d.id===Q.method))Q.method='cuenta';
-  const types=[['gasto','Gasto'],['pago','Pago a deuda'],['ingreso','Ingreso extra']];
+  const types=[['gasto','Gasto'],['pago','Pago deuda'],['ahorro','Ahorro'],['ingreso','Ingreso extra']];
   let body='';
   if(Q.type==='gasto'){
     body=`<span class="lab">¿En qué?</span><div class="chips">${S.cats.map(c=>`<button class="pick" data-act="q-cat" data-v="${c.id}" aria-pressed="${Q.cat===c.id}">${esc(c.name)}</button>`).join('')}
@@ -404,6 +417,8 @@ function renderQuick(){
     if(!Q.debtId||!S.debts.some(d=>d.id===Q.debtId))Q.debtId=S.debts[0]?S.debts[0].id:null;
     body=`<span class="lab">¿A cuál deuda?</span><div class="chips">${S.debts.map(d=>`<button class="pick" data-act="q-debt" data-v="${d.id}" aria-pressed="${Q.debtId===d.id}">${esc(d.name)}</button>`).join('')||'<span class="muted small">Aún no hay deudas.</span>'}</div>`;
   }
+  else if(Q.type==='ahorro')body=`<p class="small muted" style="margin:10px 0 0">Sale de tu disponible y entra a tu bolsillo para <b>${esc(goalName())}</b>. Llevas ${fmt(savedTotal())} guardados.</p>`;
+  else if(Q.type==='retiro')body=`<p class="small muted" style="margin:10px 0 0">Vuelve de tu bolsillo a tu disponible. Tienes <b>${fmt(savedTotal())}</b> guardados.</p>`;
   $('#quick').innerHTML=`
     <h2>Registrar</h2>
     <div class="seg" role="group" aria-label="Tipo de movimiento" style="margin-top:10px">${types.map(t=>`<button data-act="q-type" data-v="${t[0]}" aria-pressed="${Q.type===t[0]}">${t[1]}</button>`).join('')}</div>
@@ -413,7 +428,7 @@ function renderQuick(){
     </div>
     ${body}
     <div class="row" style="margin-top:12px"><input class="field" style="flex:1 1 120px" id="q-note" placeholder="Nota (opcional)" value="${esc(keep.note)}" aria-label="Nota"><input class="field" style="flex:0 0 140px" type="date" id="q-date" value="${esc(keep.date)}" aria-label="Fecha"></div>
-    <button class="btn primary" data-act="q-save">${Q.type==='gasto'?'Guardar gasto':Q.type==='pago'?'Guardar pago':'Guardar ingreso'}</button>
+    <button class="btn primary" data-act="q-save">${({gasto:'Guardar gasto',pago:'Guardar pago',ahorro:'Guardar en mi bolsillo',retiro:'Sacar del bolsillo',ingreso:'Guardar ingreso'})[Q.type]}</button>
     <p class="small muted" id="q-msg" role="status" style="margin:8px 0 0;min-height:1.4em"></p>`;
 }
 function quickSave(){
@@ -423,11 +438,12 @@ function quickSave(){
   const m={type:Q.type,amt,cur:Q.cur,cop:L.toCop(amt,Q.cur,S.trm),date,note:$('#q-note').value.trim()};
   if(Q.type==='gasto'){m.cat=Q.cat;m.method=Q.method;try{localStorage.setItem('fin.method',Q.method)}catch(e){}}
   if(Q.type==='pago'){if(!Q.debtId){msg.textContent='Primero agrega una deuda.';return}m.debtId=Q.debtId;if(Q.dueKey)m.dueKey=Q.dueKey}
+  if(Q.type==='retiro'&&m.cop>savedTotal()+.5){msg.textContent='En tu bolsillo solo hay '+fmt(savedTotal())+'.';return}
   applyMov(m,1);addMov(m);saveState();
   Q.dueKey=null;$('#q-amt').value='';$('#q-note').value='';
   render();
   const d=m.method&&m.method!=='cuenta'?S.debts.find(x=>x.id===m.method):null;
-  let t='Listo: '+fmt(m.cop)+(m.type==='gasto'?' en '+catName(m.cat):m.type==='pago'?' a '+methodName(m.debtId):' de ingreso extra')+'.';
+  let t='Listo: '+fmt(m.cop)+(m.type==='gasto'?' en '+catName(m.cat):m.type==='pago'?' a '+methodName(m.debtId):m.type==='ahorro'?' guardados en tu bolsillo':m.type==='retiro'?' de vuelta a tu disponible':' de ingreso extra')+'.';
   if(d){const u=util(d);if(u!=null)t+=' '+d.name+' queda en '+pct(u)+' del cupo.'}
   $('#q-msg').textContent=t;$('#q-amt').focus();
 }
@@ -451,21 +467,21 @@ function alerts(ps){
   const sinPago=S.debts.filter(d=>!d.cuota&&d.kind!=='familia'&&!d.next&&L.debtCop(d,S.trm)>0);
   if(sinPago.length)a.push(['info',`Sin próximo pago registrado: ${sinPago.map(d=>esc(d.name)).join(', ')}. Cuando te llegue el extracto, anota el pago mínimo y la fecha.`]);
   const nodate=ps.com.filter(c=>c.nodate&&c.kind!=='debt');
-  if(nodate.length)a.push(['info',`${nodate.length} pagos fijos no tienen día definido; por ahora los cuento a fin de mes. Ponles día en Deudas o Ajustes.`]);
+  if(nodate.length)a.push(['info',`${nodate.length} pagos fijos no tienen día definido; por ahora los cuento a fin de mes. Ponles día en Deudas o en Gastos fijos.`]);
   if(S.goal.ssStart&&!S.goal.ssOff)a.push(['info',`Salud y pensión: tu meta es empezar a pagar en ${ymLabel(S.goal.ssStart)}. Serían cerca de ${fmt(L.ssAporte(incomeMonth()))} al mes.`]);
   return a;
 }
 function comRow(c){
   const when=c.date?dshort(c.date):'sin fecha';
-  const st=c.paid?'<span class="pill ok">● Pagado</span>':c.overdue?'<span class="pill crit">■ Vencido</span>':'';
-  const btn=c.paid?'':c.kind==='fixed'?`<button class="btn sm" data-act="pay-fixed" data-id="${c.id}" data-key="${c.key}">Marcar pagado</button>`
+  const st=c.paid?'<span class="pill ok">● Pagado</span>':c.overdue?'<span class="pill crit">● Vencido</span>':'';
+  const btn=c.paid?'':c.kind==='fixed'?`<button class="btn sm" data-act="pay-fixed" data-id="${c.id}" data-key="${c.key}">Ya pagué</button><a class="btn sm" href="#fijos" style="text-decoration:none">Con otro medio</a>`
     :`<button class="btn sm" data-act="pay-debt" data-id="${c.id}" data-amt="${Math.round(c.amt)}" data-key="${c.key||''}">Pagar</button>`;
   return`<div class="li"><div class="who"><b>${esc(c.name)}</b><span class="small muted">${when}${c.cash?'':' · se carga a tarjeta'}</span></div>${st}<span class="amt">${fmt(c.amt)}</span>${btn}</div>`;
 }
 function movRow(m){
-  const what=m.type==='gasto'?catName(m.cat):m.type==='pago'?'Pago a '+methodName(m.debtId):m.sueldo?'Quincena':'Ingreso extra';
+  const what=m.type==='gasto'?catName(m.cat):m.type==='pago'?'Pago a '+methodName(m.debtId):m.type==='ahorro'?'Guardado en mi bolsillo':m.type==='retiro'?'Sacado del bolsillo':m.sueldo?'Quincena':'Ingreso extra';
   const how=m.type==='gasto'?methodName(m.method):'';
-  return`<tr><td>${dshort(L.parse(m.date))}</td><td><b>${esc(what)}</b>${m.note?' <span class="muted">· '+esc(m.note)+'</span>':''}</td><td class="muted">${esc(how)}</td><td class="n">${m.type==='ingreso'?'+':'−'} ${fmt(m.cop)}</td><td class="n"><button class="btn ghost" data-act="del-mov" data-id="${m.id}" data-confirm aria-label="Borrar movimiento">Borrar</button></td></tr>`;
+  return`<tr><td>${dshort(L.parse(m.date))}</td><td><b>${esc(what)}</b>${m.note?' <span class="muted">· '+esc(m.note)+'</span>':''}</td><td class="muted">${esc(how)}</td><td class="n">${m.type==='ingreso'||m.type==='retiro'?'+':'−'} ${fmt(m.cop)}</td><td class="n"><button class="btn ghost" data-act="del-mov" data-id="${m.id}" data-confirm aria-label="Borrar movimiento">Borrar</button></td></tr>`;
 }
 function curPS(){
   const today=new Date(),p0=L.period(today,S.income.days),nk=L.iso(p0.next);
@@ -488,8 +504,8 @@ function payBox(tg){
 }
 function vResumen(){
   const ps=curPS(),tg=payTarget(ps);
-  const cash=ps.carry+ps.income-ps.pagos-ps.gastosCash;
-  const used=ps.pagos+ps.gastosCash+ps.pend,tot=Math.max(ps.income+ps.carry,used,1);
+  const cash=ps.carry+ps.income-ps.pagos-ps.gastosCash-ps.ahorro,saved=savedTotal();
+  const used=ps.pagos+ps.gastosCash+Math.max(0,ps.ahorro)+ps.pend,tot=Math.max(ps.income+ps.carry,used,1);
   const w=v=>(Math.max(0,v)/tot*100)+'%';
   const al=alerts(ps);
   const recent=M.slice().sort((a,b)=>b.date.localeCompare(a.date)||b.ts-a.ts).slice(0,8);
@@ -502,15 +518,17 @@ function vResumen(){
     <div class="big ${ps.libre<0?'neg':''}">${ps.libre<0?'− ':''}${fmt(Math.abs(ps.libre))}</div>
     <div class="muted">${ps.libre>=0?`Libres después de pagos y gastos. Son unos <b>${fmt(ps.libre/Math.max(1,ps.daysLeft))}</b> por día hasta el ${dshort(ps.per.next)}.`:'Te faltan para cubrir esta quincena. Revisa qué pago puedes mover o qué gasto frenar.'}</div>`}
     ${payBox(tg)}
-    <div class="flow" role="img" aria-label="Reparto del ingreso de la quincena"><i class="f-pay" style="width:${w(ps.pagos)}"></i><i class="f-exp" style="width:${w(ps.gastosCash)}"></i><i class="f-pend" style="width:${w(ps.pend)}"></i><i class="f-free" style="width:${w(ps.libre)}"></i></div>
+    <div class="flow" role="img" aria-label="Reparto del ingreso de la quincena"><i class="f-pay" style="width:${w(ps.pagos)}"></i><i class="f-exp" style="width:${w(ps.gastosCash)}"></i><i class="f-save" style="width:${w(ps.ahorro)}"></i><i class="f-pend" style="width:${w(ps.pend)}"></i><i class="f-free" style="width:${w(ps.libre)}"></i></div>
     <div class="legend">
       <div><span>Entró</span><b>${fmt(ps.income)}</b></div>
       ${ps.carry>0?`<div><span>Sobrante anterior</span><b>${fmt(ps.carry)}</b></div>`:''}
       <div><span><i class="sw f-pay"></i>Pagado a deudas</span><b>${fmt(ps.pagos)}</b></div>
       <div><span><i class="sw f-exp"></i>Gastado de tu cuenta</span><b>${fmt(ps.gastosCash)}</b></div>
+      ${ps.ahorro?`<div><span><i class="sw f-save"></i>Guardado en tu bolsillo</span><b>${fmt(ps.ahorro)}</b></div>`:''}
       <div><span><i class="sw f-pend"></i>Pagos pendientes</span><b>${fmt(ps.pend)}</b></div>
       <div><span><i class="sw f-free"></i>Libre</span><b>${fmt(Math.max(0,ps.libre))}</b></div>
     </div>
+    <p class="small" style="margin:14px 0 0;padding-top:10px;border-top:1px solid var(--line)">En tu cuenta hoy: <b>${fmt(cash)}</b> · En tu bolsillo: <b>${fmt(saved)}</b> · En total tienes <b>${fmt(cash+saved)}</b></p>
   </section>
   ${al.length?`<section class="stack" style="gap:8px" aria-label="Avisos">${al.map(x=>`<div class="alert ${x[0]}"><span>${x[1]}</span></div>`).join('')}</section>`:''}
   <section class="card"><h2>Pagos de esta quincena</h2><div class="list" style="margin-top:6px">${ps.com.length?ps.com.map(comRow).join(''):'<p class="muted">No hay pagos con fecha en esta quincena. Anota los próximos pagos en Deudas.</p>'}</div></section>
@@ -571,8 +589,9 @@ function vMes(){
     <div class="tile"><span class="small muted">Entró</span><b>${fmt(ms.income)}</b></div>
     <div class="tile"><span class="small muted">Salió de tu cuenta</span><b>${fmt(ms.gastosCash+ms.pagos)}</b><span class="small muted">${fmt(ms.gastosCash)} gastos · ${fmt(ms.pagos)} a deudas</span></div>
     <div class="tile"><span class="small muted">Balance de caja</span><b style="color:var(--${ms.balance<0?'crit':'ink'})">${ms.balance<0?'− ':''}${fmt(Math.abs(ms.balance))}</b></div>
+    <div class="tile"><span class="small muted">Guardaste en tu bolsillo</span><b>${fmt(ms.ahorro)}</b></div>
     <div class="tile"><span class="small muted">Nuevo en tarjetas</span><b>${fmt(ms.gastosCard)}</b></div>
-    <div class="tile"><span class="small muted">Tu deuda este mes</span><b>${ms.deudaDelta>0?'Subió ':ms.deudaDelta<0?'Bajó ':''}${fmt(Math.abs(ms.deudaDelta))}</b>${ms.deudaDelta>0?'<span class="pill risk">◆ Gastaste más de lo que pagaste</span>':ms.deudaDelta<0?'<span class="pill ok">● Vas bajando</span>':''}<span class="small muted" style="display:block">Sin contar intereses</span></div>
+    <div class="tile"><span class="small muted">Tu deuda este mes</span><b>${ms.deudaDelta>0?'Subió ':ms.deudaDelta<0?'Bajó ':''}${fmt(Math.abs(ms.deudaDelta))}</b>${ms.deudaDelta>0?'<span class="pill risk">● Gastaste más de lo que pagaste</span>':ms.deudaDelta<0?'<span class="pill ok">● Vas bajando</span>':''}<span class="small muted" style="display:block">Sin contar intereses</span></div>
   </div>
   <section class="card"><h2>En qué se fue</h2>
     ${cats.length?`<div class="bars" style="margin-top:12px">${cats.map(([id,v])=>`<div class="bar" title="${esc(catName(id))}: ${fmt(v)}"><span>${esc(catName(id))}</span><div class="track"><i style="width:${v/max*100}%"></i></div><span><b>${fmt(v)}</b> <span class="muted small">${Math.round(v/tot*100)}%</span></span></div>`).join('')}</div>
@@ -594,7 +613,7 @@ function goalCalc(){
   const fund=g.setup.reduce((s,x)=>s+setupAmt(x),0);
   const now=new Date(),idx=ym=>{const[y,m]=ym.split('-').map(Number);return(y-now.getFullYear())*12+(m-1-now.getMonth())};
   const debts=S.debts.filter(d=>!d.cuota&&L.debtCop(d,S.trm)>0).map(d=>({bal:L.debtCop(d,S.trm),rate:d.kind==='familia'?0:(d.rate||g.assumedRate||0)}));
-  const pr=L.project({debts,cap:g.capacity,share:g.share,ssAt:Math.max(0,idx(g.ssStart||g.date)),ssAmt:ss,fund});
+  const pr=L.project({saved0:savedTotal(),debts,cap:g.capacity,share:g.share,ssAt:Math.max(0,idx(g.ssStart||g.date)),ssAmt:ss,fund});
   const capMax=Math.max(0,inc-fijos-cuotas);
   return{inc,rent,ss,fijos,cuotas,cLong,cOther,living,cost,fund,setupAmt,pr,goalIdx:idx(g.date),capMax,now};
 }
@@ -620,16 +639,84 @@ function chart(c){
   </svg><div class="tip" id="ch-tip"></div></div>
   <div class="row small" style="gap:16px;margin-top:4px"><span><i class="sw" style="background:var(--s2)"></i>Deuda sin cuota fija</span><span><i class="sw" style="background:var(--s1)"></i>Ahorro para salir</span></div>`;
 }
+function goalInfo(){
+  const g=S.goal,kind=goalKind(),c=kind==='indep'?goalCalc():null;
+  const target=kind==='indep'?c.fund:(g.target||0),saved=savedTotal(),today=new Date();
+  const start=L.parse(g.start||S.since||L.iso(today)),[gy,gm]=g.date.split('-').map(Number),end=new Date(gy,gm-1,1);
+  const frac=Math.min(1,Math.max(0,(today-start)/Math.max(1,end-start))),expected=target*frac;
+  const monthsLeft=Math.max(0,(gy-today.getFullYear())*12+(gm-1-today.getMonth()));
+  const need=Math.max(0,target-saved);
+  return{g,kind,c,target,saved,start,end,frac,expected,monthsLeft,need,perMonth:monthsLeft>0?need/monthsLeft:need,pct:target>0?Math.min(1,saved/target):0,today};
+}
+function goalSeries(gi){
+  const s0=new Date(gi.start.getFullYear(),gi.start.getMonth(),1),mi_=d=>(d.getFullYear()-s0.getFullYear())*12+d.getMonth()-s0.getMonth();
+  const cur=mi_(gi.today),nEnd=Math.max(1,mi_(gi.end)),n=Math.min(120,Math.max(nEnd,cur+1));
+  const dim=d=>new Date(d.getFullYear(),d.getMonth()+1,0).getDate();
+  const sf=(gi.start.getDate()-1)/dim(gi.start),tf=cur+(gi.today.getDate()/dim(gi.today));
+  const cum=x=>{const lim=L.iso(new Date(s0.getFullYear(),s0.getMonth()+x,1));return M.reduce((a,m)=>a+(m.date<lim?(m.type==='ahorro'?m.cop:m.type==='retiro'?-m.cop:0):0),0)};
+  const act=[];for(let x=0;x<=cur&&x<=n;x++)act.push({x,v:cum(x)});act.push({x:Math.min(n,tf),v:gi.saved});
+  const ideal=x=>gi.target*Math.min(1,Math.max(0,(x-sf)/Math.max(.01,nEnd-sf)));
+  return{s0,n,nEnd,act,ideal,sf};
+}
+function goalChart(gi){
+  const d=goalSeries(gi),W=640,H=230,l=10,r=10,t=26,b=26,ymax=Math.max(1,gi.target,gi.saved)*1.05;
+  const X=x=>l+(W-l-r)*x/d.n,Y=v=>H-b-(H-t-b)*v/ymax,lab=x=>idxLabel(d.s0,x);
+  const step=Math.max(1,Math.ceil(d.n/6));let ticks='';
+  for(let x=0;x<=d.n;x+=step)ticks+=`<text x="${X(x)}" y="${H-7}" text-anchor="${x===0?'start':'middle'}" font-size="11" fill="var(--ink2)">${lab(x)}</text>`;
+  const last=d.act[d.act.length-1];
+  return`<div class="chart" id="gchart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Lo que llevas guardado frente al ritmo que necesitas">
+    <line x1="${l}" x2="${W-r}" y1="${H-b}" y2="${H-b}" stroke="var(--line)"/>
+    <line x1="${l}" x2="${W-r}" y1="${Y(gi.target)}" y2="${Y(gi.target)}" stroke="var(--line)" stroke-dasharray="3 4"/><text x="${l}" y="${Y(gi.target)-5}" font-size="11" fill="var(--ink2)">Meta ${fmt(gi.target)}</text>
+    <path d="M${X(d.sf)} ${Y(0)} L${X(d.nEnd)} ${Y(gi.target)}" fill="none" stroke="var(--ink2)" stroke-width="1.5" stroke-dasharray="5 5"/>
+    <path d="${d.act.map((p,i)=>(i?'L':'M')+X(p.x).toFixed(1)+' '+Y(p.v).toFixed(1)).join(' ')}" fill="none" stroke="var(--s1)" stroke-width="2.5" stroke-linejoin="round"/>
+    <circle cx="${X(last.x)}" cy="${Y(last.v)}" r="5" fill="var(--s1)" stroke="var(--surface)" stroke-width="2"/>
+    ${ticks}<line id="gch-x" y1="${t-8}" y2="${H-b}" stroke="var(--ink2)" stroke-width="1" style="display:none"/>
+  </svg><div class="tip" id="gch-tip"></div></div>
+  <div class="row small" style="gap:16px;margin-top:4px"><span><i class="sw" style="background:var(--s1)"></i>Lo que llevas</span><span><i class="sw" style="background:repeating-linear-gradient(90deg,var(--ink2) 0 4px,transparent 4px 7px)"></i>Ritmo para llegar a tiempo</span></div>`;
+}
+function bindGoalChart(){
+  const el=$('#gchart');if(!el)return;const gi=goalInfo(),d=goalSeries(gi),svg=el.querySelector('svg'),tip=$('#gch-tip'),xl=$('#gch-x');
+  svg.addEventListener('pointermove',e=>{const r=svg.getBoundingClientRect(),W=640;let x=Math.round(((e.clientX-r.left)/r.width*W-10)/(W-20)*d.n);x=Math.max(0,Math.min(d.n,x));
+    const px=10+(W-20)*x/d.n,a=d.act.filter(p=>p.x<=x+.999).pop();
+    xl.setAttribute('x1',px);xl.setAttribute('x2',px);xl.style.display='';tip.style.display='block';tip.style.left=Math.min(r.width-90,Math.max(90,px/W*r.width))+'px';tip.style.top='30px';
+    tip.innerHTML=`<b>${idxLabel(d.s0,x)}</b> · Ritmo ${fmt(d.ideal(x))}${a&&x<=d.act[d.act.length-1].x+1?' · Llevas '+fmt(a.v):''}`});
+  svg.addEventListener('pointerleave',()=>{tip.style.display='none';xl.style.display='none'});
+}
+function goalCard(gi){
+  const g=gi.g,done=gi.target>0&&gi.saved>=gi.target;
+  const st=!(gi.target>0)?['none','Falta el monto']:done?['ok','Meta cumplida']:gi.saved>=gi.expected-1?['ok','Vas al día']:gi.saved>=gi.expected*.7?['care','Un poco atrás']:['risk','Atrasado'];
+  const msg=!(gi.target>0)?'Escribe cuánto necesitas para ver tu progreso.':done?'Ya tienes guardado todo lo que te propusiste.'
+    :gi.monthsLeft>0?`Te faltan <b>${fmt(gi.need)}</b>. Para llegar en ${ymLabel(g.date)} necesitas guardar unos <b>${fmt(gi.perMonth)}</b> al mes durante ${gi.monthsLeft} ${gi.monthsLeft===1?'mes':'meses'}.${gi.saved<gi.expected-1?` Según el ritmo, hoy deberías llevar ${fmt(gi.expected)}.`:''}`
+    :`Te faltan <b>${fmt(gi.need)}</b> y la fecha que pusiste ya llegó. Muévela o ajusta el monto.`;
+  return`<section class="card">
+    <div class="row" style="justify-content:space-between;align-items:flex-start"><div><span class="eyebrow">Mi meta · ${ymLabel(g.date)}</span><h2 style="font-size:24px">${gi.kind==='indep'?'Vivir por mi cuenta':esc(g.name||'Mi meta')}</h2></div><span class="pill ${st[0]}">${ZI[st[0]]} ${st[1]}</span></div>
+    <div class="big" style="font-size:36px;margin-top:12px">${fmt(gi.saved)} <span class="muted" style="font-size:18px;font-weight:500">de ${fmt(gi.target)}</span></div>
+    <div class="prog" role="img" aria-label="Llevas el ${Math.round(gi.pct*100)}% de tu meta"><i style="width:${Math.max(gi.saved>0?1.5:0,gi.pct*100)}%"></i>${gi.target>0&&!done?`<b style="left:calc(${gi.frac*100}% - 1px)" title="Donde deberías ir hoy"></b>`:''}</div>
+    <div class="row small muted" style="justify-content:space-between"><span><b style="color:var(--ink)">${Math.round(gi.pct*100)}%</b> guardado</span>${gi.target>0&&!done?'<span>La raya marca dónde deberías ir hoy</span>':''}</div>
+    <p style="margin:10px 0 0">${msg}</p>
+    <div class="row" style="margin-top:12px"><button class="btn primary" style="width:auto;margin:0" data-act="q-ahorro">Guardar plata para mi meta</button>${gi.saved>0?'<button class="btn" data-act="q-retiro">Sacar del bolsillo</button>':''}</div>
+    ${gi.target>0?goalChart(gi):''}
+    <details style="margin-top:14px" ${gi.target>0&&!S.demo?'':'open'}><summary>Cambiar mi meta</summary><div class="inputs" style="margin-top:10px">
+      <label>Tipo de meta<select class="field" data-chg="goal:kind" data-kind="text"><option value="simple" ${gi.kind==='simple'?'selected':''}>Ahorrar para algo</option><option value="indep" ${gi.kind==='indep'?'selected':''}>Irme a vivir por mi cuenta</option></select></label>
+      ${gi.kind==='simple'?`<label>¿Para qué estás ahorrando?<input class="field" value="${esc(g.name||'')}" placeholder="Viaje, moto, estudio…" data-chg="goal:name" data-kind="text"></label>
+      <label>¿Cuánto necesitas?<input class="field" inputmode="decimal" value="${mi(g.target)}" placeholder="Ej. 3.000.000" data-chg="goal:target" data-kind="money"></label>`:''}
+      <label>¿Para cuándo?<input class="field" type="month" value="${esc(g.date)}" data-chg="goal:date" data-kind="text"></label>
+      <label>Empecé a ahorrar el<input class="field" type="date" value="${esc(g.start||S.since||'')}" data-chg="goal:start" data-kind="text"></label>
+    </div>${gi.kind==='indep'?'<p class="small muted">El monto de esta meta es el "Fondo para salir" que armas más abajo.</p>':''}</details>
+  </section>`;
+}
 function vMeta(){
-  const g=S.goal,c=goalCalc(),left=c.inc-c.cost,pr=c.pr;
+  const gi=goalInfo();
+  if(gi.kind!=='indep')return goalCard(gi);
+  const g=S.goal,c=gi.c,left=c.inc-c.cost,pr=c.pr;
   const late=pr.fundAt!=null?pr.fundAt-c.goalIdx:null;
   const verdict=pr.debtFree==null?['crit','Con esta plata mensual la deuda no alcanza a bajar: los intereses se comen el pago. Sube el monto o frena el uso de las tarjetas.']
     :pr.fundAt==null?['risk',`Quedarías sin deudas de consumo en <b>${idxLabel(c.now,pr.debtFree)}</b>, pero el fondo de salida no se completa en este horizonte.`]
     :late<=0?['ok',`Vas a tiempo: sin deudas de consumo en <b>${idxLabel(c.now,pr.debtFree)}</b> y fondo completo en <b>${idxLabel(c.now,pr.fundAt)}</b>.`]
     :['warn',`A este ritmo quedas sin deudas de consumo en <b>${idxLabel(c.now,pr.debtFree)}</b> y completas el fondo en <b>${idxLabel(c.now,pr.fundAt)}</b>: <b>${late} ${late===1?'mes':'meses'} después</b> de tu meta de ${ymLabel(g.date)}.`];
   const line=(n,v,note)=>`<div class="li"><div class="who"><b>${n}</b>${note?`<span class="small muted">${note}</span>`:''}</div><span class="amt">${fmt(v)}</span></div>`;
-  return`
-  <section class="card"><span class="eyebrow">Vivir por mi cuenta · meta ${ymLabel(g.date)}</span>
+  return goalCard(gi)+`
+  <section class="card"><span class="eyebrow">El plan para lograrlo</span><h2>Primero las deudas, después el fondo</h2>
     <div class="alert ${verdict[0]==='ok'?'info':verdict[0]}" style="margin-top:10px"><span>${verdict[1]}</span></div>
     ${c.cLong?`<p class="small" style="margin:10px 0 0"><b>${S.debts.filter(d=>d.cuota&&isLong(d)).map(d=>esc(d.name)).join(', ')}</b> no entra en esa cuenta: sigue contigo después de independizarte, y sus <b>${fmt(c.cLong)}</b> al mes ya están dentro del costo de vivir por tu cuenta y del colchón.</p>`:''}
     <div class="inputs" style="margin-top:14px">
@@ -646,8 +733,8 @@ function vMeta(){
     <label class="lab">Arriendo: ${g.rentPct}% del ingreso<input class="range" type="range" min="25" max="40" step="1" value="${g.rentPct}" data-chg="goal:rentPct" data-kind="num"></label>
     <div class="list">
       ${line('Arriendo máximo',c.rent,'Una guía común: entre 30% y 40% del ingreso')}
-      ${line('Salud y pensión',c.ss,'Independiente: 28,5% + ARL sobre el 40% del ingreso')}
-      ${line('Gastos fijos actuales',c.fijos,'Los de Ajustes')}
+      ${c.ss?line('Salud y pensión',c.ss,'Independiente: 28,5% + ARL sobre el 40% del ingreso'):''}
+      ${line('Gastos fijos actuales',c.fijos,'Los de la pestaña Gastos fijos')}
       ${c.cLong?line('Deudas de largo plazo',c.cLong,S.debts.filter(d=>d.cuota&&isLong(d)).map(d=>esc(d.name)).join(', ')+'. No se termina antes de salir'):''}
       ${c.cOther?line('Otras cuotas que seguirían vivas',c.cOther,'Las que no alcanzas a terminar antes de '+ymLabel(g.date)):''}
       ${g.living.map((x,i)=>`<div class="li"><input class="field" style="flex:1 1 140px" value="${esc(x.name)}" data-chg="goal:living:${i}:name" data-kind="text" aria-label="Concepto"><input class="field sm" inputmode="decimal" value="${mi(x.amt)||0}" data-chg="goal:living:${i}:amt" data-kind="money" aria-label="Valor mensual"><button class="btn ghost" data-act="del-living" data-i="${i}" aria-label="Quitar">✕</button></div>`).join('')}
@@ -666,28 +753,43 @@ function vMeta(){
   </section></div>
   <p class="src">Seguridad social 2026: base del 40% del ingreso, nunca menor a un salario mínimo ($ 1.750.905); salud 12,5%, pensión 16%, ARL riesgo I 0,522%. Es un estimado; confírmalo con un contador o en tu operador PILA.</p>`;
 }
+function vFijos(){
+  const now=new Date(),ym=L.iso(now).slice(0,7),since=S.since?L.parse(S.since):null;
+  const rows=S.fixed.map(f=>{const last=new Date(now.getFullYear(),now.getMonth()+1,0).getDate(),due=new Date(now.getFullYear(),now.getMonth(),Math.min(f.day||last,last));
+    const mov=M.find(m=>m.fixedId===f.id&&m.dueKey===ym);return{f,due,mov,pre:!mov&&since&&due<since&&!FX['np:'+f.id],cop:L.toCop(f.amt,f.cur,S.trm)}});
+  const tot=rows.reduce((a,r)=>a+r.cop,0),paid=rows.filter(r=>r.mov||r.pre).reduce((a,r)=>a+r.cop,0);
+  return`<div class="row" style="justify-content:space-between"><h2>Gastos fijos de ${ymLabel(ym)}</h2><button class="btn sm" data-act="add-fixed">+ Agregar gasto fijo</button></div>
+  <div class="tiles"><div class="tile"><span class="small muted">Total al mes</span><b>${fmt(tot)}</b></div><div class="tile"><span class="small muted">Ya pagado</span><b>${fmt(paid)}</b></div><div class="tile"><span class="small muted">Falta por pagar</span><b>${fmt(tot-paid)}</b></div></div>
+  ${rows.map(({f,due,mov,pre,cop})=>{const sel=FX[f.id]||f.method;
+    const st=mov?`<span class="pill ok">● Pagado con ${esc(methodName(mov.method))}</span>`:pre?`<span class="pill none">○ Ya estaba pagado al empezar</span><button class="btn ghost" data-act="fx-np" data-id="${f.id}">Aún no lo he pagado</button>`:due<L.parse(L.iso(now))?'<span class="pill crit">● Vencido</span>':'<span class="pill care">● Pendiente</span>';
+    return`<section class="card fx">
+      <div class="row" style="justify-content:space-between;align-items:flex-start"><div style="min-width:0;flex:1 1 160px"><h3 style="font-size:17px">${esc(f.name)}</h3><span class="small muted">${f.day?'Día '+f.day+' de cada mes':'Sin día definido'} · ${esc(catName(f.cat))}</span></div>
+        <div style="text-align:right"><div style="font:700 20px/1.1 var(--display)">${fmt(cop)}</div>${f.cur==='USD'?`<span class="small muted">${usd(f.amt)}</span>`:''}</div></div>
+      <div class="row">${st}${mov?`<span class="small muted">${dshort(L.parse(mov.date))}</span><button class="btn ghost" data-act="del-mov" data-id="${mov.id}" data-confirm>Deshacer</button>`:''}</div>
+      ${mov||pre?'':`<div><span class="lab" style="margin-top:0">¿Con qué lo pagaste?</span><div class="chips"><button class="pick" data-act="fx-m" data-id="${f.id}" data-v="cuenta" aria-pressed="${sel==='cuenta'}">Cuenta / efectivo</button>${chargeable().map(d=>`<button class="pick" data-act="fx-m" data-id="${f.id}" data-v="${d.id}" aria-pressed="${sel===d.id}">${esc(d.name)}</button>`).join('')}</div></div>
+      <div class="row"><button class="btn primary" style="width:auto;margin:0" data-act="pay-fixed" data-id="${f.id}" data-key="${ym}" data-m="${sel}">Ya pagué</button>${sel!=='cuenta'?`<span class="small muted">Se suma a la deuda de ${esc(methodName(sel))} y no sale de tu disponible.</span>`:''}</div>`}
+      <details><summary>Editar</summary><div class="inputs" style="margin-top:10px">
+        <label>Nombre<input class="field" value="${esc(f.name)}" data-chg="fixed:${f.id}:name" data-kind="text"></label>
+        <label>Valor<input class="field" inputmode="decimal" value="${f.cur==='USD'?f.amt:mi(f.amt)||0}" data-chg="fixed:${f.id}:amt" data-kind="${f.cur==='USD'?'usd':'money'}"></label>
+        <label>Moneda<select class="field" data-chg="fixed:${f.id}:cur" data-kind="text"><option ${f.cur==='COP'?'selected':''}>COP</option><option ${f.cur==='USD'?'selected':''}>USD</option></select></label>
+        <label>Día del mes<input class="field" inputmode="numeric" placeholder="1 a 31" value="${f.day||''}" data-chg="fixed:${f.id}:day" data-kind="num"></label>
+        <label>Categoría<select class="field" data-chg="fixed:${f.id}:cat" data-kind="text">${S.cats.map(c=>`<option value="${c.id}" ${f.cat===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></label>
+        <label>Normalmente lo pago con<select class="field" data-chg="fixed:${f.id}:method" data-kind="text"><option value="cuenta" ${f.method==='cuenta'?'selected':''}>Cuenta / efectivo</option>${chargeable().map(d=>`<option value="${d.id}" ${f.method===d.id?'selected':''}>${esc(d.name)}</option>`).join('')}</select></label>
+      </div><button class="btn ghost" style="margin-top:8px" data-act="del-fixed" data-id="${f.id}" data-confirm>Quitar este gasto fijo</button></details>
+    </section>`}).join('')||'<section class="card"><p class="muted">Aún no tienes gastos fijos. Agrega el primero: celular, arriendo, gimnasio, suscripciones…</p></section>'}`;
+}
 function vAjustes(){
   return`
-  <section class="card"><h2>Ingreso</h2><div class="inputs" style="margin-top:10px">
+  <section class="card"><h2>Mis datos e ingreso</h2><div class="inputs" style="margin-top:10px">
     <label>Tu nombre<input class="field" value="${esc(S.name||'')}" data-chg="name" data-kind="text"></label>
     <label>Cada pago que recibes<input class="field" inputmode="decimal" value="${S.income.cur==='COP'?mi(S.income.perPay)||0:S.income.perPay}" data-chg="income:perPay" data-kind="${S.income.cur==='COP'?'money':'usd'}"></label>
     <label>Te pagan en<select class="field" data-chg="income:cur" data-kind="text"><option value="COP" ${S.income.cur==='COP'?'selected':''}>Pesos</option><option value="USD" ${S.income.cur!=='COP'?'selected':''}>Dólares</option></select></label>
     <label>Días de pago<input class="field" value="${S.income.days.join(', ')}" data-chg="income:days" data-kind="days"></label>
-    <label>Fecha meta para independizarte<input class="field" type="month" value="${esc(S.goal.date)}" data-chg="goal:date" data-kind="text"></label>
-    <label>Empezar salud y pensión<input class="field" type="month" value="${esc(S.goal.ssStart)}" data-chg="goal:ssStart" data-kind="text"></label>
     <label>Llevo la cuenta desde<input class="field" type="date" value="${esc(S.since||'')}" data-chg="since" data-kind="text"></label>
-    <label>¿Pagas salud y pensión por tu cuenta?<select class="field" data-chg="goal:ssOff" data-kind="bool"><option value="" ${S.goal.ssOff?'':'selected'}>Sí, soy independiente</option><option value="1" ${S.goal.ssOff?'selected':''}>No, me lo descuenta la empresa</option></select></label></div>
+    <label>¿Pagas salud y pensión por tu cuenta?<select class="field" data-chg="goal:ssOff" data-kind="bool"><option value="" ${S.goal.ssOff?'':'selected'}>Sí, soy independiente</option><option value="1" ${S.goal.ssOff?'selected':''}>No</option></select></label>
+    ${S.goal.ssOff?'':`<label>Empiezo a pagar salud y pensión en<input class="field" type="month" value="${esc(S.goal.ssStart)}" data-chg="goal:ssStart" data-kind="text"></label>`}</div>
     <p class="small muted">Los pagos fijos con fecha anterior a ese día se dan por hechos: no aparecen como pendientes ni tocan tus saldos.</p>
     <p class="small muted">Al mes: ${fmt(incomeMonth(),{cop:1})}${S.income.cur==='COP'?'':' con TRM '+S.trm}. Si te pagan una vez al mes, deja un solo día de pago.</p></section>
-  <section class="card"><h2>Gastos fijos</h2><div class="list" style="margin-top:6px">
-    ${S.fixed.map(f=>`<div class="li"><input class="field" style="flex:1 1 150px" value="${esc(f.name)}" data-chg="fixed:${f.id}:name" data-kind="text" aria-label="Nombre">
-      <input class="field sm" inputmode="decimal" value="${f.cur==='USD'?f.amt:mi(f.amt)||0}" data-chg="fixed:${f.id}:amt" data-kind="${f.cur==='USD'?'usd':'money'}" aria-label="Valor">
-      <select class="field xs" data-chg="fixed:${f.id}:cur" data-kind="text" aria-label="Moneda"><option ${f.cur==='COP'?'selected':''}>COP</option><option ${f.cur==='USD'?'selected':''}>USD</option></select>
-      <input class="field xs" inputmode="numeric" placeholder="Día" value="${f.day||''}" data-chg="fixed:${f.id}:day" data-kind="num" aria-label="Día del mes">
-      <select class="field sm" data-chg="fixed:${f.id}:cat" data-kind="text" aria-label="Categoría">${S.cats.map(c=>`<option value="${c.id}" ${f.cat===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select>
-      <select class="field sm" data-chg="fixed:${f.id}:method" data-kind="text" aria-label="Se paga con"><option value="cuenta" ${f.method==='cuenta'?'selected':''}>Cuenta</option>${chargeable().map(d=>`<option value="${d.id}" ${f.method===d.id?'selected':''}>${esc(d.name)}</option>`).join('')}</select>
-      <button class="btn ghost" data-act="del-fixed" data-id="${f.id}" data-confirm>Quitar</button></div>`).join('')}
-    <div class="li"><button class="btn sm" data-act="add-fixed">+ Agregar gasto fijo</button></div></div></section>
   <section class="card"><h2>Categorías</h2><div class="chips" style="margin-top:10px">${S.cats.map(c=>`<span class="chip"><input style="width:${Math.max(6,c.name.length+1)}ch;text-align:left" value="${esc(c.name)}" data-chg="cats:${c.id}:name" data-kind="text" aria-label="Nombre de la categoría">${c.id==='otros'?'':`<button class="btn ghost" style="padding:0 4px" data-act="del-cat" data-id="${c.id}" data-confirm aria-label="Quitar ${esc(c.name)}">✕</button>`}</span>`).join('')}</div>
     <div class="row" style="margin-top:10px"><input class="field sm" id="nc-name" placeholder="Nueva categoría" aria-label="Nueva categoría"><button class="btn sm" data-act="add-cat">Crear</button></div>
     <p class="small muted">Si quitas una categoría, sus gastos pasan a Otros.</p></section>
@@ -723,10 +825,10 @@ function renderView(){
   if(!loaded&&mode==='loading')return;
   const demo=S.demo?`<section class="card" style="border-color:var(--accent);border-width:2px"><h2>Estos son datos de ejemplo</h2>
     <p style="margin:6px 0 8px">Todo lo que dice <b>(editar)</b> es inventado para que veas cómo funciona. Para dejarla tuya:</p>
-    <ol style="margin:0 0 10px;padding-left:20px"><li><a href="#ajustes">Ajustes</a>: cuánto te pagan, en qué moneda, qué días, y tus gastos fijos.</li><li><a href="#deudas">Deudas</a>: cambia las de ejemplo por las tuyas, con saldo, cupo y tasa.</li><li><a href="#meta">Mi meta</a>: tu fecha y los costos estimados.</li></ol>
+    <ol style="margin:0 0 10px;padding-left:20px"><li><a href="#ajustes">Ajustes</a>: tu nombre, cuánto te pagan, en qué moneda y qué días.</li><li><a href="#fijos">Gastos fijos</a>: lo que pagas todos los meses.</li><li><a href="#deudas">Deudas</a>: cambia las de ejemplo por las tuyas, con saldo, cupo y tasa.</li><li><a href="#meta">Mi meta</a>: para qué ahorras, cuánto y para cuándo.</li></ol>
     <div class="row"><button class="btn sm" data-act="demo-clear" data-confirm>Borrar los ejemplos y empezar en blanco</button><button class="btn sm" data-act="demo-done">Listo, ya puse mis datos</button></div></section>`:'';
-  $('#view').innerHTML=demo+({resumen:vResumen,deudas:vDeudas,mes:vMes,meta:vMeta,familia:vFamilia,ajustes:vAjustes})[t]();
-  if(t==='meta')bindChart();
+  $('#view').innerHTML=demo+({resumen:vResumen,deudas:vDeudas,mes:vMes,fijos:vFijos,meta:vMeta,familia:vFamilia,ajustes:vAjustes})[t]();
+  if(t==='meta'){bindChart();bindGoalChart()}
 }
 function bindChart(){
   const el=$('#chart');if(!el)return;const c=goalCalc(),n=+el.dataset.n,svg=el.querySelector('svg'),tip=$('#ch-tip'),xl=$('#ch-x');
@@ -760,6 +862,7 @@ function setPath(path,raw,kind){
   if(p[0]==='goal'){
     if(p[1]==='sharePct'){S.goal.share=v/100;return}
     if(p[1]==='living'||p[1]==='setup'){S.goal[p[1]][+p[2]][p[3]]=p[3]==='amt'?(v||0):v;return}
+    if((p[1]==='date'||p[1]==='kind')&&!v)return;
     S.goal[p[1]]=v;return}
   const arr=S[p[0]],o=arr&&arr.find(x=>x.id===p[1]);if(!o)return;
   if(p[2]==='next.amt'){if(v>0){o.next=o.next||{};o.next.amt=v}else o.next=null;return}
@@ -793,12 +896,15 @@ function act(a,d,el){
     case'q-newcat':Q.newCat=true;renderQuick();$('#q-newcat').focus();break;
     case'q-addcat':{const n=($('#q-newcat').value||'').trim();Q.newCat=false;if(n){const c={id:uid(),name:n};S.cats.push(c);Q.cat=c.id;saveState()}renderQuick();break}
     case'q-save':quickSave();break;
+    case'q-ahorro':case'q-retiro':Q.type=a==='q-ahorro'?'ahorro':'retiro';Q.cur='COP';renderQuick();$('#q-msg').textContent=a==='q-ahorro'?'Escribe cuánto vas a guardar.':'Escribe cuánto vas a sacar.';$('#q-amt').focus();$('#quick').scrollIntoView({block:'nearest'});break;
+    case'fx-m':FX[d.id]=d.v;renderView();break;
+    case'fx-np':FX['np:'+d.id]=1;renderView();break;
     case'pay-debt':Q.type='pago';Q.debtId=d.id;Q.dueKey=d.key||null;Q.cur='COP';renderQuick();$('#q-amt').value=+d.amt>0?Number(d.amt).toLocaleString('es-CO'):'';$('#q-msg').textContent='Confirma el valor y guarda el pago.';$('#q-amt').focus();$('#quick').scrollIntoView({block:'nearest'});break;
-    case'pay-fixed':{const f=S.fixed.find(x=>x.id===d.id);if(!f)break;const m={type:'gasto',amt:f.amt,cur:f.cur,cop:L.toCop(f.amt,f.cur,S.trm),date:L.iso(new Date()),note:f.name,cat:f.cat,method:f.method,fixedId:f.id,dueKey:d.key};applyMov(m,1);addMov(m);saveState();render();break}
+    case'pay-fixed':{const f=S.fixed.find(x=>x.id===d.id);if(!f)break;const m={type:'gasto',amt:f.amt,cur:f.cur,cop:L.toCop(f.amt,f.cur,S.trm),date:L.iso(new Date()),note:f.name,cat:f.cat,method:d.m||f.method,fixedId:f.id,dueKey:d.key};applyMov(m,1);addMov(m);saveState();render();break}
     case'del-mov':delMov(d.id);break;
     case'del-debt':S.debts=S.debts.filter(x=>x.id!==d.id);saveState();render();break;
     case'add-debt':{const n=$('#nd-name').value.trim();if(!n)break;S.debts.push({id:uid(),name:n,kind:$('#nd-kind').value,cop:0,usd:0,cupo:null,rate:null,next:null});saveState();render();break}
-    case'add-fixed':S.fixed.push({id:uid(),name:'Nuevo gasto fijo',amt:0,cur:'COP',day:null,cat:S.cats[0].id,method:'cuenta'});saveState();render();break;
+    case'add-fixed':location.hash='#fijos';S.fixed.push({id:uid(),name:'Nuevo gasto fijo (editar)',amt:0,cur:'COP',day:null,cat:S.cats[0].id,method:'cuenta'});saveState();render();break;
     case'del-fixed':S.fixed=S.fixed.filter(x=>x.id!==d.id);saveState();render();break;
     case'add-cat':{const n=$('#nc-name').value.trim();if(!n)break;S.cats.push({id:uid(),name:n});saveState();render();break}
     case'del-cat':S.cats=S.cats.filter(x=>x.id!==d.id);saveState();render();break;
@@ -823,7 +929,7 @@ window.addEventListener('hashchange',()=>{renderTabs();renderView();window.scrol
 function normalize(s){const o=Object.assign(clone(EMPTY),s||{});o.goal=Object.assign(clone(EMPTY.goal),s&&s.goal||{});o.income=Object.assign(clone(EMPTY.income),s&&s.income||{});
   ['cats','debts','fixed'].forEach(k=>{if(!Array.isArray(o[k]))o[k]=[]});if(!o.cats.some(c=>c.id==='otros'))o.cats.push({id:'otros',name:'Otros'});
   ['living','setup'].forEach(k=>{if(!Array.isArray(o.goal[k]))o.goal[k]=[]});return o}
-const SEED={"v": 1, "demo": true, "name": "", "trm": 3300, "income": {"perPay": 500, "cur": "USD", "days": [15, 30]}, "cats": [{"id": "domicilios", "name": "Domicilios"}, {"id": "compras", "name": "Compras online"}, {"id": "mercado", "name": "Mercado"}, {"id": "transporte", "name": "Transporte"}, {"id": "casa", "name": "Casa y familia"}, {"id": "suscripciones", "name": "Suscripciones"}, {"id": "salud", "name": "Salud y gimnasio"}, {"id": "ocio", "name": "Ocio"}, {"id": "mascotas", "name": "Mascotas"}, {"id": "trabajo", "name": "Trabajo"}, {"id": "otros", "name": "Otros"}], "debts": [{"id": "ej1", "name": "Tarjeta de ejemplo (editar)", "kind": "tarjeta", "cop": 1200000, "usd": 0, "cupo": 3000000, "rate": 28, "next": null, "note": "Cambia nombre, saldo, cupo y tasa por los tuyos"}, {"id": "ej2", "name": "Crédito de ejemplo (editar)", "kind": "credito", "cop": 2000000, "usd": 0, "rate": null, "next": null, "cuota": 180000, "dia": 5, "cuotasLeft": 11, "note": "Una deuda con cuota fija mensual"}, {"id": "ej3", "name": "Préstamo familiar de ejemplo (editar)", "kind": "familia", "cop": 200000, "usd": 0, "next": null, "note": "Sin intereses ni fecha"}], "fixed": [{"id": "f1", "name": "Celular (editar)", "amt": 50000, "cur": "COP", "day": 10, "cat": "casa", "method": "cuenta"}, {"id": "f2", "name": "Streaming (editar)", "amt": 40000, "cur": "COP", "day": 15, "cat": "suscripciones", "method": "cuenta"}, {"id": "f3", "name": "Gimnasio (editar)", "amt": 90000, "cur": "COP", "day": 20, "cat": "salud", "method": "cuenta"}], "goal": {"date": "2027-12", "rentPct": 30, "ssStart": "2027-02", "ssOff": false, "capacity": 400000, "share": 1, "assumedRate": 26, "living": [{"name": "Servicios (agua, luz, gas)", "amt": 250000}, {"name": "Internet", "amt": 90000}, {"name": "Mercado", "amt": 800000}, {"name": "Transporte", "amt": 200000}, {"name": "Aseo y hogar", "amt": 100000}], "setup": [{"name": "Primer mes y depósito", "auto": "rent2"}, {"name": "Muebles y electrodomésticos básicos", "amt": 4000000}, {"name": "Trasteo e imprevistos", "amt": 500000}, {"name": "Colchón de seguridad", "auto": "month"}]}};
+const SEED={"v": 1, "demo": true, "name": "", "trm": 3300, "income": {"perPay": 500, "cur": "USD", "days": [15, 30]}, "cats": [{"id": "domicilios", "name": "Domicilios"}, {"id": "compras", "name": "Compras online"}, {"id": "mercado", "name": "Mercado"}, {"id": "transporte", "name": "Transporte"}, {"id": "casa", "name": "Casa y familia"}, {"id": "suscripciones", "name": "Suscripciones"}, {"id": "salud", "name": "Salud y gimnasio"}, {"id": "ocio", "name": "Ocio"}, {"id": "mascotas", "name": "Mascotas"}, {"id": "trabajo", "name": "Trabajo"}, {"id": "otros", "name": "Otros"}], "debts": [{"id": "ej1", "name": "Tarjeta de ejemplo (editar)", "kind": "tarjeta", "cop": 1200000, "usd": 0, "cupo": 3000000, "rate": 28, "next": null, "note": "Cambia nombre, saldo, cupo y tasa por los tuyos"}, {"id": "ej2", "name": "Crédito de ejemplo (editar)", "kind": "credito", "cop": 2000000, "usd": 0, "rate": null, "next": null, "cuota": 180000, "dia": 5, "cuotasLeft": 11, "note": "Una deuda con cuota fija mensual"}, {"id": "ej3", "name": "Préstamo familiar de ejemplo (editar)", "kind": "familia", "cop": 200000, "usd": 0, "next": null, "note": "Sin intereses ni fecha"}], "fixed": [{"id": "f1", "name": "Celular (editar)", "amt": 50000, "cur": "COP", "day": 10, "cat": "casa", "method": "cuenta"}, {"id": "f2", "name": "Streaming (editar)", "amt": 40000, "cur": "COP", "day": 15, "cat": "suscripciones", "method": "cuenta"}, {"id": "f3", "name": "Gimnasio (editar)", "amt": 90000, "cur": "COP", "day": 20, "cat": "salud", "method": "cuenta"}], "goal": {"kind": "simple", "name": "Mi meta (editar)", "target": 2000000, "date": "2027-12", "rentPct": 30, "ssStart": "2027-02", "ssOff": true, "capacity": 400000, "share": 1, "assumedRate": 26, "living": [{"name": "Servicios (agua, luz, gas)", "amt": 250000}, {"name": "Internet", "amt": 90000}, {"name": "Mercado", "amt": 800000}, {"name": "Transporte", "amt": 200000}, {"name": "Aseo y hogar", "amt": 100000}], "setup": [{"name": "Primer mes y depósito", "auto": "rent2"}, {"name": "Muebles y electrodomésticos básicos", "amt": 4000000}, {"name": "Trasteo e imprevistos", "amt": 500000}, {"name": "Colchón de seguridad", "auto": "month"}]}};
 const editing=()=>{const a=document.activeElement;return!!(a&&a.matches&&a.matches('#view input, #view select'))};
 const AUTHMSG={'auth/invalid-credential':'Correo o contraseña incorrectos.','auth/wrong-password':'Correo o contraseña incorrectos.','auth/user-not-found':'No hay una cuenta con ese correo. Créala primero.','auth/email-already-in-use':'Ya existe una cuenta con ese correo. Entra con tu contraseña.','auth/weak-password':'La contraseña debe tener al menos 6 caracteres.','auth/invalid-email':'Ese correo no es válido.','auth/network-request-failed':'Sin conexión. Revisa tu internet.','auth/too-many-requests':'Demasiados intentos. Espera unos minutos.'};
 let gateMode='in';
